@@ -51,12 +51,12 @@
 #
 # Also:
 #
-# DEBUG=1                 # add debug symbols (-g)
-# RELEASE=1               # Force release-style compile (no asserts, etc)
+  DEBUG=1                 # add debug symbols (-g)
+#  RELEASE=1               # Force release-style compile (no asserts, etc)
 # SINGLETHREAD=1          # Compile single-threaded to make compilation errors easier to find
 # BOOTLOADER=1            # make the bootloader (not Espruino)
-# PROFILE=1               # Compile with gprof profiling info
-# CFILE=test.c            # Compile in the supplied C file
+ PROFILE=1               # Compile with gprof profiling info
+# CFILE=src/trace.c            # Compile in the supplied C file
 # CPPFILE=test.cpp        # Compile in the supplied C++ file
 #
 # WIZNET=1                # If compiling for a non-linux target that has internet support, use WIZnet support, not TI CC3000
@@ -86,7 +86,7 @@ endif
 INCLUDE=-I$(ROOT) -I$(ROOT)/targets -I$(ROOT)/src -I$(GENDIR)
 LIBS=
 DEFINES=
-CFLAGS=-Wall -Wextra -Wconversion -Werror=implicit-function-declaration -fno-strict-aliasing
+CFLAGS=-Wall -Wextra -Wconversion -Werror=implicit-function-declaration -fno-strict-aliasing #-finstrument-functions -finstrument-functions-exclude-file-list=src/
 LDFLAGS=-Winline
 OPTIMIZEFLAGS=
 #-fdiagnostics-show-option - shows which flags can be used with -Werror
@@ -786,11 +786,11 @@ src/jswrap_waveform.c
 # integers (as the check for int *includes* the chek for pin)
 SOURCES = \
 src/jslex.c \
-src/jsvar.c \
+var/jsvar.c \
 src/jsvariterator.c \
 src/jsutils.c \
 src/jsnative.c \
-src/jsparse.c \
+par/jsparse.c \
 src/jspin.c \
 src/jsinteractive.c \
 src/jsdevices.c \
@@ -1609,7 +1609,7 @@ LIBS += -lpthread # thread lib for input processing
 ifdef OPENWRT_UCLIBC
 LIBS += -lc
 else
-LIBS += -lstdc++
+#LIBS += -lstdc++ #Uncomment this line if need be.
 endif
 endif
 
