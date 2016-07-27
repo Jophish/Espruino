@@ -30,5 +30,4 @@ function inner() {
 
 outer();
 result = r=="In outer\nIn inner\nCatch inner coucou\nCatch outer coucou\n";
-
-
+trace();

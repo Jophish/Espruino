@@ -52,11 +52,11 @@
 #
 # Also:
 #
-# DEBUG=1                 # add debug symbols (-g)
+  DEBUG=1                 # add debug symbols (-g)
 # RELEASE=1               # Force release-style compile (no asserts, etc)
 # SINGLETHREAD=1          # Compile single-threaded to make compilation errors easier to find
 # BOOTLOADER=1            # make the bootloader (not Espruino)
-# PROFILE=1               # Compile with gprof profiling info
+  PROFILE=1               # Compile with gprof profiling info
 # CFILE=test.c            # Compile in the supplied C file
 # CPPFILE=test.cpp        # Compile in the supplied C++ file
 #
@@ -798,6 +798,8 @@ src/jswrap_waveform.c
 SOURCES = \
 src/jslex.c \
 src/jsvar.c \
+src/jsmaths.c \
+src/jshash.c \
 src/jsvariterator.c \
 src/jsutils.c \
 src/jsnative.c \
@@ -1620,7 +1622,7 @@ LIBS += -lpthread # thread lib for input processing
 ifdef OPENWRT_UCLIBC
 LIBS += -lc
 else
-LIBS += -lstdc++
+#LIBS += -lstdc++
 endif
 endif
 

@@ -33,3 +33,4 @@ var a = [
 pass = 0;
 a.forEach(function (n) { if (n) pass++; });
 result = pass==a.length;
+

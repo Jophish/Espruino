@@ -12,6 +12,7 @@
  * ----------------------------------------------------------------------------
  */
 #include "jsparse.h"
+#include "jshash.h"
 #include "jsinteractive.h"
 #include "jswrapper.h"
 #include "jsnative.h"
@@ -23,7 +24,6 @@
 /* Info about execution when Parsing - this saves passing it on the stack
  * for each call */
 JsExecInfo execInfo;
-
 // ----------------------------------------------- Forward decls
 JsVar *jspeAssignmentExpression();
 JsVar *jspeExpression();
@@ -2518,6 +2518,7 @@ JsVar *jspEvaluate(const char *str, bool stringIsStatic) {
    * if the string goes away, everything gets corrupted - hence
    * the option here.
    */
+    makeHash();
   JsVar *evCode;
   if (stringIsStatic)
     evCode = jswrap_espruino_memoryArea((int)(size_t)str, (int)strlen(str));

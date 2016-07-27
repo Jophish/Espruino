@@ -20,11 +20,6 @@
 #include "jswrap_math.h" // for jswrap_math_mod
 #include "jswrap_object.h" // for jswrap_object_toString
 #include "jswrap_arraybuffer.h" // for jsvNewTypedArray
-#include <stdio.h>
-
-//for dynamic optimizations
-#include "jshash.h"
-#include "jsmaths.h"
 
 #ifdef DEBUG
   /** When freeing, clear the references (nextChild/etc) in the JsVar.
@@ -104,11 +99,6 @@ ALWAYS_INLINE bool jsvIsIterable(const JsVar *v) {
 // ----------------------------------------------------------------------------
 // ----------------------------------------------------------------------------
 
-///////////////////////////
-extern JsLex *lex;
-extern hashtable_t *Hash;
-extern JsExecInfo execInfo;
-/////////////////////////////
 
 /** Return a pointer - UNSAFE for null refs.
  * This is effectively a Lock without locking! */
@@ -2826,129 +2816,16 @@ bool jsvMathsOpTypeEqual(JsVar *a, JsVar *b) {
   return eql;
 }
 
-
-
 JsVar *jsvMathsOp(JsVar *a, JsVar *b, int op) {
-  
-    // We maintain a dictionary indexed by lex->tokenStart upon the time of calling jsvMathsOp, whose data includes all
-    // relevant information needed to decide how to calculate "a op b" as well as a function pointer to the function we have
-    // to call to return the appropriate JsVar
-    //
-    // When jsvMathsOp is called, we check to see if lex->tokenStart is in our dictionary. If it is not, we execute jsvMathsOp
-    // as normal, and before returning, fill the dictionary entry at lex->tokenStart with the relevant information, as well as
-    // the function pointer.
-    //
-    // If lex->tokenStart /is/ in our dictionary, we check to see that our current a and b vars represent the same information
-    // as that stored in our dictionary (that is, namely, they have the same type). If they do, then we simply call the function
-    // located at the function pointer stored in our dictionary with the correct info, and return that.
-    //
-    // If the data does NOT match (that is, namely, a or b now has a different type than before), we run jsvMathsOp as normal
-    // and before returning, update the entry at lex->tokenStart with the new information.
-    //
-    // In this way, we offer some small amount of dynamic optimzation (foreseeably at the cost of a lot of RAM usage??) by
-    // preventing redundant typechecks.
-    //
-    // It may be beneficial/smarter/faster in the longrun to only do this sort of optimization on some particular math operation
-    // if it is executed a certain number of times. For example, no real reason to do this for a piece of code that's only
-    // ever going to be executed once. If a statement is executed many times, it is likely that the types of the variables involved
-    // are unchanging. In short, in order to see any benefit, we must amortize the setup cost over the potential speedup in
-    // subsequent executions.
-    //
-    // Also, the entries are never deleted from the dictionary; this means that when a current bit of code leaves the current
-    // scope, it remains in the dictionary, making for somewhat of a memory leak? Maybe a good idea to augment the
-    // garbage collection routine to remove entries from the dictionary if they're out of scope.
-
-
-    // BETTER IDEA THAN WHAT WE'RE DOING NOW:
-    //
-    // Since I actually managed to make Espruino significantly slower...
-    //
-    // Instead of re-checking all the type data before calculating anything, let's do this:
-    // If the type data for some expression stays the same for x iterations, then instead of
-    // running through jsvMathsOp as normal, we just assume that all future iterations of the
-    // expression will have the same type data, so calculate without checking. If the type data
-    // hasn't changed, we're golden, no errors. If it HAS changed, then we'll get an error, so catch it
-    // somehow and then bail out and just execute jsvMathsOp as normal.
-    //
-    // The question is then how do we get try/catch functionality in C...
-
-    
-    // this gets initialized no matter what; the declaration is so the compiler
-    // doesn't yell at us.
-    MathsOpData *currentData = NULL;
-    //see if the expression is already hashed
-    MathsOpData *oldData = (MathsOpData*)ht_get(Hash, &(lex->tokenLastStart));
-    
-    //10 is an arbitrary minimum...
-    //printf("%u", !(execInfo.execute && EXEC_EVAL));
-    // unpredictable behavior if we're in an eval, so make sure we're not
-    
-    // && !(execInfo.execute && EXEC_EVAL)
-    if (oldData != NULL) {
-
-        if (++(oldData->count) > 10){
-
-	    return (oldData->function)(a,b,op);
-	    currentData = makeMathsOpData(a,b, op);
-	
-	    bool opUnchanged = equalsMathsOpData(oldData, currentData);
-	
-	    if (opUnchanged){
-		//printf("expression is unchanged\n\r");
-		// simply call the function at the pointer in oldData with the CURRENT data, that is, currentData	   
-		// (oldData->function)(a,b,op);
-		return (oldData->function)(a,b,op);
-	    }
-	
-	    else{
-		//printf("expression changed\n\r");
-		//update data in hash
-		ht_set(Hash, &(lex->tokenLastStart), (void *)currentData);
-		//continue execution as normal, set the function pointer before returning
-	    }
-	    
-	}
-	else{
-	    currentData = oldData;
-	}
-	/*
-        
-	 */
-    }
-			  
-    else{
-        currentData = makeMathsOpData(a, b, op);
-	ht_set(Hash, &(lex->tokenLastStart), (void *)currentData);
-	//printf("creating %u\n\r", (lex->tokenLastStart));
-	//continue execution as normal, set the function pointer before returning
-    }
-    
-
-    
-
-    
-    // if we're here, we know that either this is the first time we've performed this operation,
-    // or the data types of this operation have changed since last execution. Either way, the hash
-    // now must contain a pointer currentData to a MathsOpData, so before we return, update
-    // currentData->function appropriately.
-
-
-    // Type equality check
-  
+  // Type equality check
   if (op == LEX_TYPEEQUAL || op == LEX_NTYPEEQUAL) {
     bool eql = jsvMathsOpTypeEqual(a,b);
-    if (op == LEX_TYPEEQUAL){
-	currentData->function = caseTypeEqual;
-	return jsvNewFromBool(eql);
-    }
-    else{
-	currentData->function = caseTypeNEqual;
+    if (op == LEX_TYPEEQUAL)
+      return jsvNewFromBool(eql);
+    else
       return jsvNewFromBool(!eql);
-    }
   }
-  
-  //printf("%u\n\r", (lex->tokenLastStart));
-  
+
   bool needsInt = op=='&' || op=='|' || op=='^' || op==LEX_LSHIFT || op==LEX_RSHIFT || op==LEX_RSHIFTUNSIGNED;
   bool needsNumeric = needsInt || op=='*' || op=='/' || op=='%' || op=='-';
   bool isCompare = op==LEX_EQUAL || op==LEX_NEQUAL || op=='<' || op==LEX_LEQUAL || op=='>'|| op==LEX_GEQUAL;
@@ -2979,139 +2856,46 @@ JsVar *jsvMathsOp(JsVar *a, JsVar *b, int op) {
       JsVarInt da = jsvGetInteger(a);
       JsVarInt db = jsvGetInteger(b);
       switch (op) {
-      case '+': {;
-	  currentData->function =  caseIntAdd;	  
-	  return jsvNewFromLongInteger((long long)da + (long long)db);
-      }
-      case '-': {
-	  currentData->function =  caseIntSub;
-	  return jsvNewFromLongInteger((long long)da - (long long)db);
-      }
-      case '*': {
-	  currentData->function =  caseIntMul;
-	  return jsvNewFromLongInteger((long long)da * (long long)db);
-      }
-      case '/': {
-	  currentData->function =  caseIntDiv;
-	  return jsvNewFromFloat((JsVarFloat)da/(JsVarFloat)db);
-      }
-      case '&': {
-	  currentData->function =  caseIntAnd;
-	  return jsvNewFromInteger(da&db);
-      }	  
-      case '|': {
-	  currentData->function =  caseIntOr;
-	  return jsvNewFromInteger(da|db);
-      }
-      case '^': {
-	  currentData->function =  caseIntBitXOR;
-	  return jsvNewFromInteger(da^db);
-      }
-      case '%': {
-	  currentData->function =  caseIntMod;
-	  return db ? jsvNewFromInteger(da%db) : jsvNewFromFloat(NAN);
-      }
-      case LEX_LSHIFT: {
-	  currentData->function =  caseIntLShift;
-	  return jsvNewFromInteger(da << db);
-      }
-      case LEX_RSHIFT: {
-	  currentData->function =  caseIntRShift;
-	  return jsvNewFromInteger(da >> db);
-      }
-      case LEX_RSHIFTUNSIGNED: {
-	  currentData->function =  caseIntUnsignedRShift;
-	  return jsvNewFromInteger((JsVarInt)(((JsVarIntUnsigned)da) >> db));
-      }
-      case LEX_EQUAL:     {
-	  currentData->function =  caseIntEqual;
-	  return jsvNewFromBool(da==db && jsvIsNull(a)==jsvIsNull(b));
-      }
-      case LEX_NEQUAL:    {
-	  currentData->function =  caseIntNEqual;
-	  return jsvNewFromBool(da!=db || jsvIsNull(a)!=jsvIsNull(b));
-      }
-      case '<':           {
-	  currentData->function =  caseIntLessThan;
-	  return jsvNewFromBool(da<db);
-      }
-      case LEX_LEQUAL:    {
-	  currentData->function =  caseIntLeq;
-	  return jsvNewFromBool(da<=db);
-      }
-      case '>':           {
-	  currentData->function =  caseIntGreaterThan;
-	  return jsvNewFromBool(da>db);
-      }
-      case LEX_GEQUAL:    {
-	  currentData->function =  caseIntGeq;
-	  return jsvNewFromBool(da>=db);
-      }
-      default: {
-	  currentData->function =  caseIntError;
-	  return jsvMathsOpError(op, "Integer");
-      }
+      case '+': return jsvNewFromLongInteger((long long)da + (long long)db);
+      case '-': return jsvNewFromLongInteger((long long)da - (long long)db);
+      case '*': return jsvNewFromLongInteger((long long)da * (long long)db);
+      case '/': return jsvNewFromFloat((JsVarFloat)da/(JsVarFloat)db);
+      case '&': return jsvNewFromInteger(da&db);
+      case '|': return jsvNewFromInteger(da|db);
+      case '^': return jsvNewFromInteger(da^db);
+      case '%': return db ? jsvNewFromInteger(da%db) : jsvNewFromFloat(NAN);
+      case LEX_LSHIFT: return jsvNewFromInteger(da << db);
+      case LEX_RSHIFT: return jsvNewFromInteger(da >> db);
+      case LEX_RSHIFTUNSIGNED: return jsvNewFromInteger((JsVarInt)(((JsVarIntUnsigned)da) >> db));
+      case LEX_EQUAL:     return jsvNewFromBool(da==db && jsvIsNull(a)==jsvIsNull(b));
+      case LEX_NEQUAL:    return jsvNewFromBool(da!=db || jsvIsNull(a)!=jsvIsNull(b));
+      case '<':           return jsvNewFromBool(da<db);
+      case LEX_LEQUAL:    return jsvNewFromBool(da<=db);
+      case '>':           return jsvNewFromBool(da>db);
+      case LEX_GEQUAL:    return jsvNewFromBool(da>=db);
+      default: return jsvMathsOpError(op, "Integer");
       }
     } else {
       // use doubles
       JsVarFloat da = jsvGetFloat(a);
       JsVarFloat db = jsvGetFloat(b);
       switch (op) {
-      case '+': {
-	  currentData->function =  caseFloatAdd;
-	  return jsvNewFromFloat(da+db);
-      }
-      case '-': {
-	  currentData->function =  caseFloatSub;
-	  return jsvNewFromFloat(da-db);
-      }
-      case '*': {
-	  currentData->function =  caseFloatMul;
-	  return jsvNewFromFloat(da*db);
-      }
-      case '/': {
-	  currentData->function =  caseFloatDiv;
-	  return jsvNewFromFloat(da/db);
-      }
-      case '%': {
-	  currentData->function =  caseFloatMod;
-	  return jsvNewFromFloat(jswrap_math_mod(da, db));
-      }
+      case '+': return jsvNewFromFloat(da+db);
+      case '-': return jsvNewFromFloat(da-db);
+      case '*': return jsvNewFromFloat(da*db);
+      case '/': return jsvNewFromFloat(da/db);
+      case '%': return jsvNewFromFloat(jswrap_math_mod(da, db));
       case LEX_EQUAL:
       case LEX_NEQUAL:  { bool equal = da==db;
-	      if ((jsvIsNull(a) && jsvIsUndefined(b)) ||
-		  (jsvIsNull(b) && jsvIsUndefined(a))) equal = true; // JS quirk :)
-
-	      if (op == LEX_EQUAL){
-		  currentData->function =  caseFloatEqual;
-		  return jsvNewFromBool(equal);}
-	      else{
-		  currentData->function =  caseFloatNEqual;
-		  return jsvNewFromBool(((bool)!equal));
-	      }
-      
-	      return jsvNewFromBool((op==LEX_EQUAL) ? equal : ((bool)!equal));
+      if ((jsvIsNull(a) && jsvIsUndefined(b)) ||
+          (jsvIsNull(b) && jsvIsUndefined(a))) equal = true; // JS quirk :)
+      return jsvNewFromBool((op==LEX_EQUAL) ? equal : ((bool)!equal));
       }
-      case '<':           {
-	  currentData->function =  caseFloatLessThan;
-	  return jsvNewFromBool(da<db);
-      }
-      case LEX_LEQUAL:    {
-	  currentData->function =  caseFloatLeq;
-	  return jsvNewFromBool(da<=db);
-      }
-      case '>':           {
-	  currentData->function =  caseFloatGreaterThan;
-	  return jsvNewFromBool(da>db);
-      }
-      case LEX_GEQUAL:    {
-	  currentData->function =  caseFloatGeq;
-	  return jsvNewFromBool(da>=db);
-      }
-      default: {
-	  currentData->function =  caseFloatError;
-	  return jsvMathsOpError(op, "Double");
-      }
+      case '<':           return jsvNewFromBool(da<db);
+      case LEX_LEQUAL:    return jsvNewFromBool(da<=db);
+      case '>':           return jsvNewFromBool(da>db);
+      case LEX_GEQUAL:    return jsvNewFromBool(da>=db);
+      default: return jsvMathsOpError(op, "Double");
       }
     }
   } else if ((jsvIsArray(a) || jsvIsObject(a) || jsvIsFunction(a) ||
@@ -3126,21 +2910,12 @@ JsVar *jsvMathsOp(JsVar *a, JsVar *b, int op) {
           a->varData.native.argTypes == b->varData.native.argTypes &&
           jsvGetFirstChild(a) == jsvGetFirstChild(b);
     }
-    
+
     /* Just check pointers */
     switch (op) {
-    case LEX_EQUAL:  {
-	currentData->function = caseObjectishEqual;
-	return jsvNewFromBool(equal);
-    }
-    case LEX_NEQUAL: {
-	currentData->function = caseObjectishNEqual;
-	return jsvNewFromBool(!equal);
-    }
-    default: {
-	currentData->function = caseObjectishError;
-	return jsvMathsOpError(op, jsvIsArray(a)?"Array":"Object");
-    }
+    case LEX_EQUAL:  return jsvNewFromBool(equal);
+    case LEX_NEQUAL: return jsvNewFromBool(!equal);
+    default: return jsvMathsOpError(op, jsvIsArray(a)?"Array":"Object");
     }
   } else {
     JsVar *da = jsvAsString(a, false);
@@ -3155,7 +2930,6 @@ JsVar *jsvMathsOp(JsVar *a, JsVar *b, int op) {
       if (v) // could be out of memory
         jsvAppendStringVarComplete(v, db);
       jsvUnLock2(da, db);
-      currentData->function = caseStringAdd;
       return v;
     }
 
@@ -3163,37 +2937,15 @@ JsVar *jsvMathsOp(JsVar *a, JsVar *b, int op) {
     jsvUnLock2(da, db);
     // use strings
     switch (op) {
-    case LEX_EQUAL:     {
-	currentData->function = caseStringEqual;
-	return jsvNewFromBool(cmp==0);
-    }
-    case LEX_NEQUAL:    {
-	currentData->function = caseStringNEqual;
-	return jsvNewFromBool(cmp!=0);
-    }
-    case '<':           {
-	currentData->function = caseStringLessThan;
-	return jsvNewFromBool(cmp<0);
-    }
-    case LEX_LEQUAL:    {
-	currentData->function = caseStringLeq;
-	return jsvNewFromBool(cmp<=0);
-    }
-    case '>':           {
-	currentData->function = caseStringGreaterThan;
-	return jsvNewFromBool(cmp>0);
-    }
-    case LEX_GEQUAL:    {
-	currentData->function = caseStringGeq;
-	return jsvNewFromBool(cmp>=0);
-    }
-    default: {
-	currentData->function = caseStringError;
-	return jsvMathsOpError(op, "String");
-    }
+    case LEX_EQUAL:     return jsvNewFromBool(cmp==0);
+    case LEX_NEQUAL:    return jsvNewFromBool(cmp!=0);
+    case '<':           return jsvNewFromBool(cmp<0);
+    case LEX_LEQUAL:    return jsvNewFromBool(cmp<=0);
+    case '>':           return jsvNewFromBool(cmp>0);
+    case LEX_GEQUAL:    return jsvNewFromBool(cmp>=0);
+    default: return jsvMathsOpError(op, "String");
     }
   }
-  
 }
 
 JsVar *jsvNegateAndUnLock(JsVar *v) {

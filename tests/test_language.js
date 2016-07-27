@@ -49,14 +49,23 @@ function shouldBeVal(msg, val, expected) {
 }
 
 shouldBe("Array().length", "0");
+
 shouldBe("(new Array()).length", "0");
+
 shouldBe("(new Array(3)).length", "3");
+
 shouldBe("(new Array(11, 22)).length", "2");
+
 shouldBe("(new Array(11, 22))[0]", "11");
+
 shouldBe("Array(11, 22)[1]", "22");
+
 shouldBeUndefined("(new Array(11, 22))[3]");
+
 shouldBe("String(new Array(11, 22))", "'11,22'");
+
 shouldBe("var a = []; a[0] = 33; a[0]", "33");
+
 shouldBe("var a = []; a[0] = 33; a.length", "1");
 
 shouldBe("Array().toString()", "''");

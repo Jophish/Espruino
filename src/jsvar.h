@@ -630,6 +630,9 @@ JsVar *jsvMathsOp(JsVar *a, JsVar *b, int op);
 /// Negates an integer/double value
 JsVar *jsvNegateAndUnLock(JsVar *v);
 
+//Error
+JsVar *jsvMathsOpError(int op, const char *datatype);
+
 /** If the given element is found, return the path to it as a string of
  * the form 'foo.bar', else return 0. If we would have returned a.b and
  * ignoreParent is a, don't! */

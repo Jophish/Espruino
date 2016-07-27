@@ -26,6 +26,7 @@
 #include "jshash.h"
 #include "jsmaths.h"
 
+
 #ifdef DEBUG
   /** When freeing, clear the references (nextChild/etc) in the JsVar.
    * This means we can assert at the end of jsvFreePtr to make sure
@@ -40,6 +41,8 @@
  *
  */
 
+
+
 #ifdef RESIZABLE_JSVARS
 JsVar **jsVarBlocks = 0;
 unsigned int jsVarsSize = 0;
@@ -50,12 +53,25 @@ JsVar jsVars[JSVAR_CACHE_SIZE];
 unsigned int jsVarsSize = JSVAR_CACHE_SIZE;
 #endif
 
+
+///////////////////////////
+extern JsLex *lex;
+
+hashtable_t *Hash = NULL;
+
+void makeHash(){
+    Hash = ht_create(100);
+}
+
+/////////////////////////////
+
+
 volatile JsVarRef jsVarFirstEmpty; ///< reference of first unused variable (variables are in a linked list)
 volatile bool isMemoryBusy; ///< Are we doing garbage collection or similar, so can't access memory?
 
 // ----------------------------------------------------------------------------
 // ----------------------------------------------------------------------------
-
+__attribute__ ((no_instrument_function))
 ALWAYS_INLINE bool jsvIsRoot(const JsVar *v) { return v && (v->flags&JSV_VARTYPEMASK)==JSV_ROOT; }
 ALWAYS_INLINE bool jsvIsPin(const JsVar *v) { return v && (v->flags&JSV_VARTYPEMASK)==JSV_PIN; }
 ALWAYS_INLINE bool jsvIsSimpleInt(const JsVar *v) { return v && (v->flags&JSV_VARTYPEMASK)==JSV_INTEGER; } // is just a very basic integer value
@@ -104,14 +120,10 @@ ALWAYS_INLINE bool jsvIsIterable(const JsVar *v) {
 // ----------------------------------------------------------------------------
 // ----------------------------------------------------------------------------
 
-///////////////////////////
-extern JsLex *lex;
-extern hashtable_t *Hash;
-extern JsExecInfo execInfo;
-/////////////////////////////
 
 /** Return a pointer - UNSAFE for null refs.
  * This is effectively a Lock without locking! */
+__attribute__ ((no_instrument_function))
 static ALWAYS_INLINE JsVar *jsvGetAddressOf(JsVarRef ref) {
   assert(ref);
 #ifdef RESIZABLE_JSVARS
@@ -141,6 +153,7 @@ void jsvSetFirstChild(JsVar *v, JsVarRef r) {
   v->varData.ref.firstChild = (unsigned char)(r & 0xFF);
   v->varData.ref.pack = (unsigned char)((v->varData.ref.pack & ~JSVARREF_PACKED_BIT_MASK) | ((r >> 8) & JSVARREF_PACKED_BIT_MASK));
 }
+__attribute__ ((no_instrument_function))
 void jsvSetNextSibling(JsVar *v, JsVarRef r) {
   v->varData.ref.nextSibling = (unsigned char)(r & 0xFF);
   v->varData.ref.pack = (unsigned char)((v->varData.ref.pack & ~(JSVARREF_PACKED_BIT_MASK<<(JSVARREF_PACKED_BITS*2))) | (((r >> 8) & JSVARREF_PACKED_BIT_MASK) << (JSVARREF_PACKED_BITS*2)));
@@ -2826,10 +2839,8 @@ bool jsvMathsOpTypeEqual(JsVar *a, JsVar *b) {
   return eql;
 }
 
-
-
 JsVar *jsvMathsOp(JsVar *a, JsVar *b, int op) {
-  
+
     // We maintain a dictionary indexed by lex->tokenStart upon the time of calling jsvMathsOp, whose data includes all
     // relevant information needed to decide how to calculate "a op b" as well as a function pointer to the function we have
     // to call to return the appropriate JsVar
@@ -2872,48 +2883,38 @@ JsVar *jsvMathsOp(JsVar *a, JsVar *b, int op) {
     //
     // The question is then how do we get try/catch functionality in C...
 
+
     
-    // this gets initialized no matter what; the declaration is so the compiler
-    // doesn't yell at us.
+    if (Hash == NULL){
+	//printf("making hash\n\r");
+	makeHash();
+	
+    }
+    // this gets initialized no matter what; the declaration is so we can access
+    // it later in jsvMathsOp safely.
     MathsOpData *currentData = NULL;
     //see if the expression is already hashed
     MathsOpData *oldData = (MathsOpData*)ht_get(Hash, &(lex->tokenLastStart));
-    
-    //10 is an arbitrary minimum...
-    //printf("%u", !(execInfo.execute && EXEC_EVAL));
-    // unpredictable behavior if we're in an eval, so make sure we're not
-    
-    // && !(execInfo.execute && EXEC_EVAL)
+
     if (oldData != NULL) {
 
-        if (++(oldData->count) > 10){
-
+        currentData = makeMathsOpData(a,b, op);
+	
+	bool opUnchanged = equalsMathsOpData(oldData, currentData);
+	
+	if (opUnchanged){
+	    //printf("expression is unchanged\n\r");
+	    // simply call the function at the pointer in oldData with the CURRENT data, that is, currentData	   
+	    (oldData->function)(a,b,op);
 	    return (oldData->function)(a,b,op);
-	    currentData = makeMathsOpData(a,b, op);
-	
-	    bool opUnchanged = equalsMathsOpData(oldData, currentData);
-	
-	    if (opUnchanged){
-		//printf("expression is unchanged\n\r");
-		// simply call the function at the pointer in oldData with the CURRENT data, that is, currentData	   
-		// (oldData->function)(a,b,op);
-		return (oldData->function)(a,b,op);
-	    }
-	
-	    else{
-		//printf("expression changed\n\r");
-		//update data in hash
-		ht_set(Hash, &(lex->tokenLastStart), (void *)currentData);
-		//continue execution as normal, set the function pointer before returning
-	    }
-	    
 	}
+	
 	else{
-	    currentData = oldData;
+	    //printf("expression changed\n\r");
+	    //update data in hash
+	    ht_set(Hash, &(lex->tokenLastStart), (void *)currentData);
+	    //continue execution as normal, set the function pointer before returning
 	}
-	/*
-        
-	 */
     }
 			  
     else{
@@ -2923,16 +2924,11 @@ JsVar *jsvMathsOp(JsVar *a, JsVar *b, int op) {
 	//continue execution as normal, set the function pointer before returning
     }
     
-
-    
-
-    
     // if we're here, we know that either this is the first time we've performed this operation,
     // or the data types of this operation have changed since last execution. Either way, the hash
     // now must contain a pointer currentData to a MathsOpData, so before we return, update
     // currentData->function appropriately.
-
-
+    
     // Type equality check
   
   if (op == LEX_TYPEEQUAL || op == LEX_NTYPEEQUAL) {
